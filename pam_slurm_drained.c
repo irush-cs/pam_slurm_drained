@@ -34,6 +34,31 @@ static struct {
     int ignore_root;
 } opts;
 
+static int _converse(pam_handle_t *pamh, char *message) {
+    struct pam_conv *conv_info;
+    int rc = PAM_SUCCESS;
+    struct pam_message *msg[1], rmsg[1];
+    struct pam_response *resp;
+
+    rc = pam_get_item(pamh, PAM_CONV, (void*) &conv_info);
+    if (rc != PAM_SUCCESS) {
+	pam_syslog(pamh, LOG_ERR, "unable to get the PAM conversation struct");
+        return rc;
+    }
+
+    msg[0] = &rmsg[0];
+    rmsg[0].msg_style = PAM_ERROR_MSG;
+    rmsg[0].msg = message;
+
+    rc = conv_info->conv(1,
+                         (const struct pam_message**)msg,
+                         &resp,
+                         conv_info->appdata_ptr
+                         );
+
+    return rc;
+}
+
 PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
     int rc = 0;
     int slurm_conf_inited = 0;
@@ -42,7 +67,10 @@ PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const c
     uint32_t state;
     char hostname[256];
     char *user_name = NULL;
+    char buffer[1024];
     int i;
+
+    buffer[sizeof(buffer)-1] = 0;
 
     opts.slurm_conf = NULL;
     opts.ignore_root = 1;
@@ -107,17 +135,27 @@ PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const c
     state = node_info->node_array[0].node_state;
 
     if (!(state & NODE_STATE_DRAIN)) {
-        pam_syslog(pamh, LOG_NOTICE, "Node %s is not draining", hostname);
+        snprintf(buffer, sizeof(buffer) - 1, "Node %s is not draining", hostname);
+        pam_syslog(pamh, LOG_NOTICE, buffer);
+        if (!(flags & PAM_SILENT)) {
+            _converse(pamh, buffer);
+        }
         result = PAM_PERM_DENIED;
         goto cleanup;
     }
 
     if (((state & NODE_STATE_BASE) == NODE_STATE_ALLOCATED) ||
         ((state & NODE_STATE_BASE) == NODE_STATE_MIXED)) {
-        pam_syslog(pamh, LOG_NOTICE, "Host %s is not drained yet", hostname);
+        snprintf(buffer, sizeof(buffer) - 1, "Node %s is not drained yet", hostname);
+        pam_syslog(pamh, LOG_NOTICE, buffer);
+        if (!(flags & PAM_SILENT)) {
+            _converse(pamh, buffer);
+        }
         result = PAM_PERM_DENIED;
         goto cleanup;
     }
+
+    pam_syslog(pamh, LOG_INFO, "Node drained, allowing access");
 
  cleanup:
     if (opts.slurm_conf) {
