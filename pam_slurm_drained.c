@@ -31,6 +31,7 @@
 
 static struct {
     char *slurm_conf;
+    int ignore_root;
 } opts;
 
 PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
@@ -40,16 +41,33 @@ PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const c
     node_info_msg_t *node_info = NULL;
     uint32_t state;
     char hostname[256];
+    char *user_name = NULL;
     int i;
 
     opts.slurm_conf = NULL;
+    opts.ignore_root = 1;
 
     for (i = 0; i < argc; i++) {
         if (strncasecmp(argv[i], "slurm_conf=", 11) == 0) {
             opts.slurm_conf = strdup((argv[i] + 11));
+        } else if (strncasecmp(argv[i], "ignore_root=", 12) == 0 &&
+                   (argv[i][12] == '0') &&
+                   argv[i][13] == 0) {
+            opts.ignore_root = 0;
         } else {
             pam_syslog(pamh, LOG_WARNING, "Warning: Unknown option: %s", argv[i]);
         }
+    }
+
+    rc = pam_get_item(pamh, PAM_USER, (void*)&user_name);
+    if (user_name == NULL || rc != PAM_SUCCESS)  {
+        pam_syslog(pamh, LOG_WARNING, "Can't get username");
+        user_name = NULL;
+    }
+    if (user_name && strcmp("root", user_name) == 0 && opts.ignore_root) {
+        pam_syslog(pamh, LOG_INFO, "Ignoring root user");
+        result = PAM_IGNORE;
+        goto cleanup;
     }
 
     rc = slurm_conf_init(opts.slurm_conf);
