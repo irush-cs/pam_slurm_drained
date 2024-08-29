@@ -26,24 +26,52 @@
 #include <security/pam_modules.h>
 #include <security/pam_ext.h>
 #include <slurm/slurm.h>
+#include <string.h>
+#include <src/common/read_config.h>
+
+static struct {
+    char *slurm_conf;
+} opts;
 
 PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const char **argv) {
     int rc = 0;
+    int slurm_conf_inited = 0;
     int result = PAM_SUCCESS;
     node_info_msg_t *node_info = NULL;
     uint32_t state;
     char hostname[256];
+    int i;
+
+    opts.slurm_conf = NULL;
+
+    for (i = 0; i < argc; i++) {
+        if (strncasecmp(argv[i], "slurm_conf=", 11) == 0) {
+            opts.slurm_conf = strdup((argv[i] + 11));
+        } else {
+            pam_syslog(pamh, LOG_WARNING, "Warning: Unknown option: %s", argv[i]);
+        }
+    }
+
+    rc = slurm_conf_init(opts.slurm_conf);
+    if (rc == SLURM_SUCCESS) {
+        slurm_conf_inited = 1;
+    } else {
+        pam_syslog(pamh, LOG_WARNING, "Warning: slurm.conf already loaded, might be from different file");
+    }
+
     hostname[sizeof(hostname)-1] = 0;
 
     if (gethostname(hostname, sizeof(hostname) - 1) != 0) {
         pam_syslog(pamh, LOG_ERR, "Failed to get hostname");
-        return PAM_SYSTEM_ERR;
+        result = PAM_SYSTEM_ERR;
+        goto cleanup;
     }
 
     rc = slurm_load_node_single(&node_info, hostname, SHOW_ALL);
     if (rc != SLURM_SUCCESS) {
         pam_syslog(pamh, LOG_ERR, "Failed to load node information from Slurm: %s (%i)", slurm_strerror(rc), rc);
-        return PAM_SYSTEM_ERR;
+        result = PAM_SYSTEM_ERR;
+        goto cleanup;
     }
 
     if (!node_info) {
@@ -74,7 +102,15 @@ PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const c
     }
 
  cleanup:
-    slurm_free_node_info_msg(node_info);
+    if (opts.slurm_conf) {
+        free(opts.slurm_conf);
+    }
+    if (node_info) {
+        slurm_free_node_info_msg(node_info);
+    }
+    if (slurm_conf_inited) {
+        slurm_conf_destroy();
+    }
 
     return result;
 }
