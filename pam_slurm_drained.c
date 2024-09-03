@@ -135,9 +135,10 @@ PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const c
     state = node_info->node_array[0].node_state;
 
     if (!(state & NODE_STATE_DRAIN)) {
-        snprintf(buffer, sizeof(buffer) - 1, "Node %s is not draining", hostname);
+        snprintf(buffer, sizeof(buffer) - 1, "%s is not draining", hostname);
         pam_syslog(pamh, LOG_NOTICE, buffer);
         if (!(flags & PAM_SILENT)) {
+            snprintf(buffer, sizeof(buffer) - 1, "Access denied by pam_slurm_drained: %s is not draining", hostname);
             _converse(pamh, buffer);
         }
         result = PAM_PERM_DENIED;
@@ -146,9 +147,10 @@ PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc, const c
 
     if (((state & NODE_STATE_BASE) == NODE_STATE_ALLOCATED) ||
         ((state & NODE_STATE_BASE) == NODE_STATE_MIXED)) {
-        snprintf(buffer, sizeof(buffer) - 1, "Node %s is not drained yet", hostname);
+        snprintf(buffer, sizeof(buffer) - 1, "%s is not drained yet", hostname);
         pam_syslog(pamh, LOG_NOTICE, buffer);
         if (!(flags & PAM_SILENT)) {
+            snprintf(buffer, sizeof(buffer) - 1, "Access denied by pam_slurm_drained: %s is not drained yet", hostname);
             _converse(pamh, buffer);
         }
         result = PAM_PERM_DENIED;
